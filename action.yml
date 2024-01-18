@@ -1,45 +1,55 @@
-name: 'Composite ECR Action'
-description: 'Configures AWS credentials, logs in to ECR, and creates repository.'
+name: 'Gitops get and update state repo'
+description: 'Get and update the state repository conposite-action'
 
 runs:
   using: 'composite'
   steps:
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
+    - name: get state repo
+      uses: actions/checkout@master
       with:
-
-        aws-access-key-id: ${{ inputs.aws-access-key-id }}
-        aws-secret-access-key: ${{inputs.aws-secret-access-key}}
-        aws-region: ${{ inputs.aws-region }}
-        
-
-    - name: Login to ECR
-      uses: aws-actions/amazon-ecr-login@v2
-
-    - name: tseting
+        repository: ${{inputs.state-repository}}
+        ref: ${{ inputs.branch-ref }}
+        path: ./deploy-charts
+        token: ${{ inputs.github-token }}
+    - name: deploy to dev with updated update to dev state
       shell: bash
       run: |
-        echo ${GITHUB_REPOSITORY}
-    - name: Prep ECR repository
-      uses: int128/create-ecr-repository-action@v1
-      with:
-        repository: ${{github.repository}}
-        # lifecycle-policy: deploy-charts/ecr.lifecycle.json
-        # repo-policy: deploy-charts/ecr.repo-policy.json
-        deleteRepo: false
+        function update_state(){
+           {
+            git pull
+            echo "./release git"
+            ./release ${{inputs.release-type }} $(cut -d'/' -f2 <<<"${{inputs.project-repository}}") "${{inputs.project-repository}}" "${{ inputs.release-tag }}"
+            git add chart
+            git commit -am 'release to dev'
+            git push
+            return 0
+           } || {
+            git reset --hard dev
+            return 1
+           }
+        }
+        git config --global user.email "systemssupport@dummy.com"
+        git config --global user.name "Actions Pipeline"
+        cd ./deploy-charts
+        pip install ruamel.yaml parse schema fire
+        set -x
+        for i in $(seq 1 5); do [ $i -gt 1 ] && update_state && sleep $(($RANDOM % 15)) && s=0 && break || s=$?; done; (exit $s)
 
 inputs:
-  aws-region:
-    description: 'AWS region'
+  github-token:
+    description: 'Github Token'
     required: true
-    default: 'us-east-1'
-  aws-access-key-id:
-    description: 'AWS access key' 
+  state-repository:
+    description: 'State repository'
     required: true
-  aws-secret-access-key:
-    description: 'AWS secret Key'
+  branch-ref:
+    description: 'Referenece Branch'
     required: true
-  ecr-repository:
-    description: 'ECR repository'
+  release-type:
+    description: 'Define release type'
     required: true
-    default: '869227219142.dkr.ecr.us-east-1.amazonaws.com'
+  project-repository:
+    description: 'Define the project repository.'
+    required: true
+  release-tag:
+    description: "Release tag"
